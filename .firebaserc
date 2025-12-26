@@ -1,0 +1,8 @@
+{
+  "projects": {
+    "default": "capstone-4f94f",
+    "staging": "p2g08-project"
+  },
+  "targets": {},
+  "etags": {}
+}

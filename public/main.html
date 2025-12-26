@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Electricity Bill & Energy Monitor</title>
+
+    <!-- update the version number as needed -->
+    <script defer src="/__/firebase/12.4.0/firebase-app-compat.js"></script>
+    <!-- include only the Firebase features as you need -->
+    <script defer src="/__/firebase/12.4.0/firebase-auth-compat.js"></script>
+    <script defer src="/__/firebase/12.4.0/firebase-database-compat.js"></script>
+    <script defer src="/__/firebase/12.4.0/firebase-firestore-compat.js"></script>
+    <script defer src="/__/firebase/12.4.0/firebase-functions-compat.js"></script>
+    <script defer src="/__/firebase/12.4.0/firebase-messaging-compat.js"></script>
+    <script defer src="/__/firebase/12.4.0/firebase-storage-compat.js"></script>
+    <script defer src="/__/firebase/12.4.0/firebase-analytics-compat.js"></script>
+    <script defer src="/__/firebase/12.4.0/firebase-remote-config-compat.js"></script>
+    <script defer src="/__/firebase/12.4.0/firebase-performance-compat.js"></script>
+    <!-- 
+      initialize the SDK after all desired features are loaded, set useEmulator to false
+      to avoid connecting the SDK to running emulators.
+    -->
+    <script defer src="/__/firebase/init.js"></script>
+
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            box-sizing: border-box;
+        }
+        
+        .gradient-bg {
+            background: linear-gradient(135deg, #0E0091 0%, #1a0f7a 100%);
+        }
+        
+        .card-hover {
+            transition: transform 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
+        }
+        
+        .card-hover:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+        }
+        
+        .energy-pulse {
+            animation: pulse 2s infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
+        
+        .chart-bar {
+            transition: height 0.5s ease-in-out;
+        }
+        
+        .primary-color {
+            background-color: #0E0091;
+        }
+        
+        .primary-hover:hover {
+            background-color: #0a0070;
+        }
+        
+        .primary-text {
+            color: #0E0091;
+        }
+        
+        .primary-border {
+            border-color: #0E0091;
+        }
+        
+        .tariff-table {
+            font-size: 0.875rem;
+        }
+    </style>
+  </head>
+  <body class="bg-gray-50 min-h-full">
+    <header class="gradient-bg text-white shadow-lg">
+        <div class="container mx-auto px-6 py-4">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center space-x-3">
+                    <div class="w-10 h-10 bg-yellow-400 rounded-lg flex items-center justify-center">
+                        <svg class="w-6 h-6 text-purple-800" fill="currentColor" viewBox="0 0 20 20">
+                            <path d="M11 3L6 9h4v8l5-6h-4V3z"/>
+                        </svg>
+                    </div>
+                    <h1 class="text-2xl font-bold">P2G08 Capstone Project</h1>
+                </div>
+                <nav class="hidden md:flex space-x-6">
+                    <a href="#dashboard" class="hover:text-yellow-300 transition-colors">Dashboard</a>
+                    <a href="#readings" class="hover:text-yellow-300 transition-colors">Readings</a>
+                    <a href="#tariff" class="hover:text-yellow-300 transition-colors">Tariff</a>
+                    <a href="#calculator" class="hover:text-yellow-300 transition-colors">Calculator</a>
+                    <a style="cursor: pointer;" class="logoutBtn hover:text-yellow-300 transition-colors">Logout</a>
+                </nav>
+            </div>
+        </div>
+    </header>
+
+    <main class="container mx-auto px-6 py-8">
+        <!-- Dashboard Overview -->
+        <section id="dashboard" class="mb-12">
+            <h1 class="text-4xl font-bold text-gray-800 mb-8 text-center">Welcome, <span id="username">Loading...</span></h1>
+            <div class="flex items-center gap-4 mb-8">
+                
+                <h2 class="text-3xl font-bold text-gray-800">Energy Dashboard</h2>
+                
+                <button id="btn-toggle" 
+                    class="px-6 py-2 rounded-lg text-white font-bold shadow-md transition-colors duration-300 bg-red-500 hover:bg-red-600">
+                    OFF
+                </button>
+
+            </div>
+            
+            <!-- Key Metrics -->
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+                <div class="bg-white rounded-xl shadow-md p-6 card-hover">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="text-gray-500 text-sm">Current Month Bill</p>
+                            <p class="text-2xl font-bold primary-text" id="currentBill">RM 0</p>
+                        </div>
+                        <div class="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center">
+                            <svg class="w-6 h-6 text-green-600" fill="currentColor" viewBox="0 0 20 20">
+                                <path d="M4 4a2 2 0 00-2 2v4a2 2 0 002 2V6h10a2 2 0 00-2-2H4zm2 6a2 2 0 012-2h8a2 2 0 012 2v4a2 2 0 01-2 2H8a2 2 0 01-2-2v-4zm6 4a2 2 0 100-4 2 2 0 000 4z"/>
+                            </svg>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="bg-white rounded-xl shadow-md p-6 card-hover">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="text-gray-500 text-sm">Energy Used (kWh)</p>
+                            <p class="text-2xl font-bold text-gray-800" id="val-energy">0</p> <!--id="energyUsed"--> 
+                        </div>
+                        <div class="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center energy-pulse">
+                            <svg class="w-6 h-6 text-blue-600" fill="currentColor" viewBox="0 0 20 20">
+                                <path d="M11 3L6 9h4v8l5-6h-4V3z"/>
+                            </svg>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="bg-white rounded-xl shadow-md p-6 card-hover">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="text-gray-500 text-sm">Power Factor</p>
+                            <p class="text-2xl font-bold text-gray-800" id="val-pf">0</p> <!--id="powerFactor"--> 
+                        </div>
+                        <div class="w-12 h-12 bg-orange-100 rounded-lg flex items-center justify-center">
+                            <svg class="w-6 h-6 text-orange-600" fill="currentColor" viewBox="0 0 20 20">
+                                <path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                            </svg>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="bg-white rounded-xl shadow-md p-6 card-hover">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="text-gray-500 text-sm">Real Power (W)</p>
+                            <p class="text-2xl font-bold text-gray-800" id="val-power">0</p> <!--id="realPower"-->
+                        </div>
+                        <div class="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center">
+                            <svg class="w-6 h-6 text-purple-600" fill="currentColor" viewBox="0 0 20 20">
+                                <path d="M3 4a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1V4zM3 10a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H4a1 1 0 01-1-1v-6zM14 9a1 1 0 00-1 1v6a1 1 0 001 1h2a1 1 0 001-1v-6a1 1 0 00-1-1h-2z"/>
+                            </svg>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Power Metrics -->
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+                <div class="bg-white rounded-xl shadow-md p-6 card-hover">
+                    <h4 class="text-lg font-semibold text-gray-800 mb-4">Power Analysis</h4>
+                    <div class="space-y-3">
+                        <div class="flex justify-between">
+                            <span class="text-gray-600">Real Power (P):</span>
+                            <span class="font-semibold" id="realPowerDetail">0 kW</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-gray-600">Reactive Power (Q):</span>
+                            <span class="font-semibold" id="reactivePower">0 kVAR</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-gray-600">Apparent Power (S):</span>
+                            <span class="font-semibold" id="apparentPower">0 kVA</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="bg-white rounded-xl shadow-md p-6 card-hover">
+                    <h4 class="text-lg font-semibold text-gray-800 mb-4">Power Factor Status</h4>
+                    <div class="text-center">
+                        <div class="w-24 h-24 mx-auto mb-4 rounded-full flex items-center justify-center relative" 
+                            style="background: conic-gradient(#0E0091 0deg 0deg, #e5e7eb 0deg 360deg);">
+                            
+                            <div class="w-20 h-20 bg-white rounded-full flex items-center justify-center absolute">
+                                <span class="text-xl font-bold text-[#0E0091]">0%</span>
+                            </div>
+
+                        </div>
+                        <p class="text-sm text-gray-600" id="pfStatus">Waiting for response</p>
+                    </div>
+                </div>
+                
+                <div class="bg-white rounded-xl shadow-md p-6 card-hover">
+                    <h4 class="text-lg font-semibold text-gray-800 mb-4">Monthly Trend</h4>
+                    <div class="space-y-2">
+                        <div class="flex justify-between text-sm">
+                            <span>This Month:</span>
+                            <span class="font-semibold" id="val-energy">0 kWh</span>
+                        </div>
+                        <div class="flex justify-between text-sm">
+                            <span>Last Month:</span>
+                            <span>1,156 kWh</span>
+                        </div>
+                        <div class="flex justify-between text-sm">
+                            <span>Change:</span>
+                            <span class="text-red-600 font-semibold">+7.9%</span>
+                        </div>
+                        <div class="w-full bg-gray-200 rounded-full h-2 mt-3">
+                            <div class="primary-color h-2 rounded-full" style="width: 79%"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+            <!-- Energy Consumption Charts -->
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+                <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+                <!-- Hourly Energy Graph -->
+                <div class="bg-white rounded-xl shadow-md p-6">
+                    <div class="flex justify-between items-center mb-4">
+                        <h4 class="text-lg font-semibold text-gray-800">Hourly Energy Usage (kWh)</h4>
+                        <span id="last-update" class="text-xs text-gray-500">Waiting for data...</span>
+                    </div>
+                    
+                    <div class="relative h-64 w-full">
+                        <canvas id="energyChart"></canvas>
+                    </div>
+                </div>
+                
+                <!--Weekly Energy Usage-->
+                <div class="bg-white p-6 rounded-xl shadow-md">
+                    <h3 class="text-lg font-semibold text-gray-800 mb-4">Weekly Energy Usage</h3>
+
+                    <div class="relative h-64 w-full">
+                        <canvas id="dailyUsageChart"></canvas>
+                    </div>
+                    
+                    <div class="mt-4 text-center">
+                        <p class="text-sm text-gray-600">Total Actual: <span id="total-display" class="font-semibold primary-text">  --</span></p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Power Factor & Cost Analysis Charts -->
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+                <div class="bg-white rounded-xl shadow-md p-6">
+                    <h4 class="text-lg font-semibold text-gray-800 mb-4">Monthly Usage Trend (Last 6 Months)</h4>
+                    
+                    <div class="relative h-64">
+                        <canvas id="monthlyTrendChart"></canvas>
+                    </div>
+                    
+                    <div class="mt-4 text-center">
+                        <p class="text-sm text-gray-600">Average: <span id="averageUsage" class="font-semibold primary-text">Calculating...</span></p>
+                    </div>
+                </div>
+
+                <!-- Cost Breakdown Chart -->
+                <div class="bg-white rounded-xl shadow-md p-6">
+                    <h4 class="text-lg font-semibold text-gray-800 mb-4">Monthly Cost Breakdown</h4>
+                    <div class="space-y-3">
+                        <div class="flex items-center justify-between">
+                            <div class="flex items-center space-x-2">
+                                <div class="w-4 h-4 rounded" style="background-color: #0E0091;"></div>
+                                <span class="text-sm">Energy Charges</span>
+                            </div>
+                            <span class="text-sm font-semibold">RM 218.45</span>
+                        </div>
+                        <div class="w-full bg-gray-200 rounded-full h-2">
+                            <div class="h-2 rounded-full" style="width: 89%; background-color: #0E0091;"></div>
+                        </div>
+                        
+                        <div class="flex items-center justify-between">
+                            <div class="flex items-center space-x-2">
+                                <div class="w-4 h-4 bg-blue-400 rounded"></div>
+                                <span class="text-sm">Service Charge</span>
+                            </div>
+                            <span class="text-sm font-semibold">RM 3.00</span>
+                        </div>
+                        <div class="w-full bg-gray-200 rounded-full h-2">
+                            <div class="bg-blue-400 h-2 rounded-full" style="width: 1.2%;"></div>
+                        </div>
+                        
+                        <div class="flex items-center justify-between">
+                            <div class="flex items-center space-x-2">
+                                <div class="w-4 h-4 bg-green-400 rounded"></div>
+                                <span class="text-sm">SST (6%)</span>
+                            </div>
+                            <span class="text-sm font-semibold">RM 13.29</span>
+                        </div>
+                        <div class="w-full bg-gray-200 rounded-full h-2">
+                            <div class="bg-green-400 h-2 rounded-full" style="width: 5.4%;"></div>
+                        </div>
+                        
+                        <div class="border-t pt-2 mt-3">
+                            <div class="flex justify-between font-semibold">
+                                <span>Total Bill:</span>
+                                <span class="primary-text">RM 234.74</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        <section id="tariff" class="mb-12">
+            <div class="bg-white rounded-xl shadow-md p-6">
+                
+                <div class="flex left mb-8">
+                    <div class="bg-gray-100 p-1 rounded-lg inline-flex">
+                        <button 
+                            id="btn-standard"
+                            class="px-6 py-2 rounded-md text-sm font-medium transition-all duration-200 bg-white text-blue-600 shadow-sm border border-gray-200">
+                            Standard Tariff
+                        </button>
+                        <button 
+                            id="btn-alternative"
+                            class="px-6 py-2 rounded-md text-sm font-medium transition-all duration-200 text-gray-500 hover:text-gray-700">
+                            ToU Tariff
+                        </button>
+                    </div>
+                </div>
+
+                <h3 class="text-xl font-semibold text-gray-800 mb-6">
+                    <span id="tariffTitle">TNB Tariff (Domestik Am) - Current Rates</span>
+                    <span id="tariffUpdateDate" class="text-sm font-normal text-gray-500 ml-2">[Last Updated 1 July 2025]</span>
+                </h3>
+                
+                <div class="mb-4 p-4 bg-blue-50 border-l-4 border-blue-500 text-blue-800 rounded">
+                    <p class="font-medium">
+                        Caj Peruncitan (Fixed Retail Charge): 
+                        <span id="fixedChargeDisplay">RM 10.00</span> / month
+                    </p>
+                </div>
+
+                <div class="overflow-x-auto">
+                    <table class="w-full tariff-table">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Usage Category</th>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Energy Charge (sen/kWh)</th>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Capacity Charge (sen/kWh)</th>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Network Charge (sen/kWh)</th>
+                                <th class="px-4 py-3 text-left text-xs font-bold text-gray-700 uppercase">Total Rate (sen/kWh)</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tariffTableBody" class="divide-y divide-gray-200">
+                            </tbody>
+                    </table>
+                </div>
+                
+                <p class="text-xs text-gray-400 mt-4 text-right">* All rates subject to <span id="sstDisplay">6</span>% SST.</p>
+            </div>
+        </section>
+
+
+        <!-- Bill Calculator -->
+        <section id="calculator" class="mb-12">
+            <div class="bg-white rounded-xl shadow-md p-6">
+                <h3 class="text-xl font-semibold text-gray-800 mb-6">Malaysian Bill Calculator</h3>
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                    <div>
+                        <div class="mb-4">
+                            <label for="calculatorUsage" class="block text-sm font-medium text-gray-700 mb-2">Monthly Usage (kWh)</label>
+                            <input type="number" id="calculatorUsage" placeholder="Enter monthly usage" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                        </div>
+                        <button onclick="calculateBill()" class="primary-color primary-hover text-white font-medium py-2 px-6 rounded-lg transition-colors">
+                            Calculate Bill
+                        </button>
+                    </div>
+                    <div id="calculationResult" class="bg-gray-50 rounded-lg p-4 hidden">
+                        <h4 class="font-semibold text-gray-800 mb-3">Bill Breakdown:</h4>
+                        <div id="billBreakdown" class="space-y-2 text-sm"></div>
+                        <div class="border-t pt-3 mt-3">
+                            <div class="flex justify-between font-semibold">
+                                <span>Total Amount:</span>
+                                <span id="totalAmount" class="primary-text"></span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Recent Readings Table -->
+        <section class="mb-12">
+            <h3 class="text-xl font-semibold text-gray-800 mb-6">Recent Readings</h3>
+            <div class="bg-white rounded-xl shadow-md overflow-hidden">
+                <div class="overflow-x-auto">
+                    <table class="w-full">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Reading (kWh)</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Real Power (kW)</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Reactive Power (kVAR)</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Power Factor</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Usage</th>
+                            </tr>
+                        </thead>
+                        <tbody id="readingsTable" class="bg-white divide-y divide-gray-200">
+                            <tr>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">2024-12-15</td>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">12,450.5</td>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">8.5</td>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">6.2</td>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">0.85</td>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">-</td>
+                            </tr>
+                            <tr>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">2024-11-15</td>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">11,203.2</td>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">7.8</td>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">5.9</td>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">0.80</td>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">1,247.3 kWh</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <footer class="bg-gray-800 text-white py-8 mt-12">
+        <div class="container mx-auto px-6 text-center">
+            <p>&copy; 2526/1 Capstone Project UTM. Monitor your energy with TNB tariff calculations.</p>
+        </div>
+    </footer>
+    <script type="module" src="js/main.js"></script>
+    </body>
+</html>
