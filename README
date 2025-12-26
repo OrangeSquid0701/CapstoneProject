@@ -1,0 +1,10 @@
+Guide to using this repository:
+
+1. Download the code zip file
+2. Extract the zip
+3. Open the downloaded folder inside VS code
+4. Open terminal
+5. Run following commands:
+
+npm install firebase-tools -g
+
