@@ -195,10 +195,10 @@ function updateDashboard(realPower, reactivePower, powerFactor, apparentPower) {
     const apparentVal = Number(apparentPower);
 
     // Text Updates
-    if(document.getElementById('realPower')) document.getElementById('realPower').textContent = realPower + ' kW';
-    if(document.getElementById('realPowerDetail')) document.getElementById('realPowerDetail').textContent = realPower + ' kW';
-    if(document.getElementById('reactivePower')) document.getElementById('reactivePower').textContent = reactivePower + ' kVAR';
-    if(document.getElementById('apparentPower')) document.getElementById('apparentPower').textContent = apparentVal.toFixed(1) + ' kVA';
+    if(document.getElementById('realPower')) document.getElementById('realPower').textContent = realPower;
+    if(document.getElementById('realPowerDetail')) document.getElementById('realPowerDetail').textContent = realPower;
+    if(document.getElementById('reactivePower')) document.getElementById('reactivePower').textContent = reactivePower;
+    if(document.getElementById('apparentPower')) document.getElementById('apparentPower').textContent = apparentVal.toFixed(1);
     if(document.getElementById('powerFactor')) document.getElementById('powerFactor').textContent = powerFactor;
 
     // PF Ring Chart Logic
@@ -733,53 +733,4 @@ document.addEventListener("DOMContentLoaded", () => {
         const updateText = document.getElementById('last-update');
         if(updateText) updateText.innerText = "Last update: " + new Date().toLocaleTimeString();
     });
-});
-
-
-// ------------------------------------------------------------------
-// 8. RELAY CONTROL LOGIC (DEVICE ON/OFF BUTTON)
-// ------------------------------------------------------------------
-
-// 1. Define the Reference using Modular Syntax
-const relayRef = ref(database, 'DeviceControl/Relay');
-
-// 2. The Toggle Function (Modular Syntax)
-function toggleRelay() {
-    get(relayRef).then((snapshot) => {
-        const currentState = snapshot.val();
-        // If current state is null/undefined, default to 0, otherwise flip it
-        const nextState = currentState === 1 ? 0 : 1;
-        
-        set(relayRef, nextState)
-            .then(() => console.log("Switched to:", nextState))
-            .catch((err) => console.error("Error switching:", err));
-    });
-}
-
-// 3. Attach the Event Listener (Fixes the "ReferenceError")
-// We do this here instead of in HTML because modules are private scopes
-const toggleBtn = document.getElementById('btn-toggle');
-if (toggleBtn) {
-    toggleBtn.addEventListener('click', toggleRelay);
-}
-
-// 4. Listen for Status Changes (Visual Feedback)
-onValue(relayRef, (snapshot) => {
-    const state = snapshot.val();
-    
-    // Safety check: ensure button exists before trying to change it
-    if (!toggleBtn) return;
-
-    // Remove old color classes
-    toggleBtn.classList.remove('bg-red-500', 'hover:bg-red-600', 'bg-green-500', 'hover:bg-green-600');
-
-    if (state === 1) {
-        // STATE IS ON: Make button Green
-        toggleBtn.innerText = "Device ON"; 
-        toggleBtn.classList.add('bg-green-500', 'hover:bg-green-600');
-    } else {
-        // STATE IS OFF: Make button Red
-        toggleBtn.innerText = "Device OFF";
-        toggleBtn.classList.add('bg-red-500', 'hover:bg-red-600');
-    }
 });
