@@ -27,3 +27,18 @@ function googleLogin() {
       console.error("Login failed:", error.code, error.message);
     });
 }
+
+function guestLogin() {
+    // We use the actual Firebase method so 'onAuthStateChanged' gets triggered
+    firebase.auth().signInAnonymously()
+        .then(() => {
+            console.log('Logged in as Guest (Anonymous)');
+            // No need to manually redirect here if onAuthStateChanged handles it,
+            // but if you are on a login-only page, you might want to:
+             window.location.href = "main.html"; 
+        })
+        .catch((error) => {
+            console.error("Guest Login Error:", error);
+            alert("Guest login failed. Check console.");
+        });
+}

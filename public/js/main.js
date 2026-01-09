@@ -25,30 +25,108 @@ const app = initializeApp(firebaseConfig);
 const database = getDatabase(app);
 const auth = getAuth(app);
 
+// 3. AUTHENTICATION & ADMIN REDIRECT LOGIC
 // ------------------------------------------------------------------
-// 3. AUTHENTICATION LOGIC
-// ------------------------------------------------------------------
+
+// 🔴 ADD ALL ADMIN UIDs HERE 
+const ADMIN_IDS = [
+    "cKxoDng5UGZYiRkwhF3bDwIRsvx1",  // amirul
+    "3FPmlAPG0Hg0Nsj61jA2Fea6qVG2",  // jienseng
+    "N7fqhvo9KcMxuSOmEpny5cXvaCm1",  // izatt
+    "xSyybwIUaFavCpl2jiX6sVyEoq43"   // dr. faizal
+]; 
+
+// Listen for login state changes (Google OR Guest)
 onAuthStateChanged(auth, (user) => {
     if (user) {
-        console.log("User detected:", user.displayName || "Anonymous");
+        console.log("User Logged In:", user.uid);
+        console.log("Is Guest?", user.isAnonymous); // Debug check
+
+        // Update UI Name
         if(document.getElementById("username")) {
-            document.getElementById("username").textContent = user.displayName || "User";
+            if (user.isAnonymous) {
+                 document.getElementById("username").textContent = "Guest (Demo)";
+            } else {
+                 document.getElementById("username").textContent = user.displayName || "User";
+            }
         }
+
+        // --- THE REDIRECT LOGIC ---
+        let pathToCheck;
+
+        // 1. Check if user is in Admin List OR is a Guest (Anonymous)
+        // ✅ ADDED: "|| user.isAnonymous"
+        if (ADMIN_IDS.includes(user.uid) || user.isAnonymous) {
+            
+            if (user.isAnonymous) {
+                console.log("🕵️ Guest detected! Giving access to Admin path...");
+            } else {
+                console.log("👑 Admin Recognized! Redirecting to 'users/admin' path...");
+            }
+            
+            // Force code to look at the "admin" folder
+            pathToCheck = 'users/admin/device_id'; 
+        } 
+        else {
+            // 2. Normal User: Look at their own folder
+            console.log("👤 Normal User detected.");
+            pathToCheck = `users/${user.uid}/device_id`;
+        }
+
+        // --- FETCH THE POINTER ---
+        const pointerRef = ref(database, pathToCheck);
+        
+        onValue(pointerRef, (snapshot) => {
+            const deviceId = snapshot.val();
+            
+            if (deviceId) {
+                console.log(`✅ Connection Established to Device: ${deviceId}`);
+                
+                // Start the charts and data listeners
+                startRealtimeDataListener(deviceId);
+                startHourlyChartListener(deviceId);
+            } else {
+                console.warn("⚠️ Access Denied: No device linked to this account path.");
+                // Optional: Alert the user if the DB path is empty
+                if(user.isAnonymous) alert("Demo data path is empty!");
+            }
+        });
+
     } else {
-        console.log("No user logged in. Redirecting...");
-        window.location.href = "index.html"; // Enforce login
+        // Only redirect to login if we are NOT already on the login page
+        // (Prevents infinite loops if this script runs on index.html)
+        if (!window.location.pathname.endsWith('index.html') && 
+            !window.location.pathname.endsWith('/')) {
+            console.log("No user logged in. Redirecting...");
+            window.location.href = "index.html"; 
+        }
     }
 });
 
-// Logout Logic
-document.querySelectorAll(".logoutBtn").forEach(btn => {
-    btn.addEventListener("click", () => {
-        signOut(auth).then(() => {
-            console.log("User logged out.");
-            window.location.href = "index.html";
-        }).catch((error) => {
-            console.error("Logout failed:", error);
-            showNotification("Logout failed: " + error.message, "error");
+// ------------------------------------------------------------------
+// LOGOUT LOGIC (Fixed to wait for page load)
+// ------------------------------------------------------------------
+document.addEventListener("DOMContentLoaded", () => {
+    // 1. Select buttons by Class (.logoutBtn) OR ID (#logoutBtn)
+    const logoutButtons = document.querySelectorAll(".logoutBtn, #logoutBtn");
+
+    if (logoutButtons.length === 0) {
+        console.warn("⚠️ Debug: No logout buttons found. Check if your HTML button has class='logoutBtn'");
+    }
+
+    // 2. Attach Click Event
+    logoutButtons.forEach(btn => {
+        btn.addEventListener("click", (e) => {
+            e.preventDefault(); // Stop any default link behavior
+            console.log("Logout clicked..."); // Debug log
+
+            signOut(auth).then(() => {
+                console.log("✅ User logged out.");
+                window.location.href = "index.html";
+            }).catch((error) => {
+                console.error("❌ Logout failed:", error);
+                alert("Logout Error: " + error.message);
+            });
         });
     });
 });
@@ -121,58 +199,62 @@ function calculateTNBEstimator(usage, tariffType = 'standard') {
 
 
 // ------------------------------------------------------------------
-// 5. REALTIME DATA LOGIC (PZEM Parameters)
+// 5. REALTIME DATA LOGIC (FIXED PATH)
 // ------------------------------------------------------------------
-const energyRef = ref(database, 'energy_monitor/live');
-
-onValue(energyRef, (snapshot) => {
-    const data = snapshot.val();
+function startRealtimeDataListener(deviceId) {
+    // OLD BROKEN PATH: ref(database, `${deviceId}/energy_monitor/live`);
     
-    if (data) {
-        // 1. Extract Raw Values
-        const voltage = parseFloat(data.voltage_V) || 0;
-        const current = parseFloat(data.current_A) || 0;
-        const powerW = parseFloat(data.power_W) || 0;
-        const energyKWh = parseFloat(data.energy_kWh) || 0;
-        const frequency = parseFloat(data.frequency_Hz) || 0;
-        const pf = parseFloat(data.power_factor) || 0;
+    // ✅ NEW CORRECT PATH: Since deviceId IS "energy_monitor", we just add "/live"
+    const energyRef = ref(database, `${deviceId}/live`);
 
-        // 2. Electrical Calculations
-        const realPowerKW = powerW / 1000;
+    onValue(energyRef, (snapshot) => {
+        const data = snapshot.val();
         
-        // Apparent Power (S = V * I) in kVA
-        const apparentPowerKVA = ((voltage * current) / 1000);
+        if (data) {
+            console.log("⚡ Data Received:", data); // Debug log to verify data arrives
 
-        // Reactive Power (Q) - PROTECTED MATH
-        const term = Math.pow(apparentPowerKVA, 2) - Math.pow(realPowerKW, 2);
-        const reactivePowerKVAR = Math.sqrt(Math.max(0, term));
+            // 1. Extract Raw Values
+            const voltage = parseFloat(data.voltage_V) || 0;
+            const current = parseFloat(data.current_A) || 0;
+            const powerW = parseFloat(data.power_W) || 0;
+            const energyKWh = parseFloat(data.energy_kWh) || 0;
+            const frequency = parseFloat(data.frequency_Hz) || 0;
+            const pf = parseFloat(data.power_factor) || 0;
 
-        // 3. Bill Calculation (Live)
-        // Uses the energyKWh from the sensor to estimate bill
-        const liveBill = calculateTNBEstimator(energyKWh);
-        console.log("💰 Calculated Bill:", liveBill);
+            // 2. Electrical Calculations
+            const realPowerKW = powerW / 1000;
+            const apparentPowerKVA = ((voltage * current) / 1000);
+            
+            // Reactive Power
+            const term = Math.pow(apparentPowerKVA, 2) - Math.pow(realPowerKW, 2);
+            const reactivePowerKVAR = Math.sqrt(Math.max(0, term));
 
-        // 4. Update Dashboard Charts & Main Bill Text
-        updateDashboard(realPowerKW.toFixed(3), reactivePowerKVAR.toFixed(3), pf.toFixed(2), apparentPowerKVA);
-        
-        // ** UPDATE THE BILL TEXT HERE **
-        if(document.getElementById("currentBill")) {
-            document.getElementById("currentBill").innerText = `RM ${liveBill.toFixed(2)}`;
+            // 3. Bill Calculation
+            const liveBill = calculateTNBEstimator(energyKWh);
+
+            // 4. Update Dashboard
+            updateDashboard(realPowerKW.toFixed(3), reactivePowerKVAR.toFixed(3), pf.toFixed(2), apparentPowerKVA);
+            
+            if(document.getElementById("currentBill")) {
+                document.getElementById("currentBill").innerText = `RM ${liveBill.toFixed(2)}`;
+            }
+
+            // 5. Update Simple Cards
+            if(document.getElementById("val-voltage")) document.getElementById("val-voltage").innerText = voltage.toFixed(1);
+            if(document.getElementById("val-current")) document.getElementById("val-current").innerText = current.toFixed(3);
+            if(document.getElementById("val-power")) document.getElementById("val-power").innerText = powerW.toFixed(1);
+            if(document.getElementById("val-energy")) document.getElementById("val-energy").innerText = energyKWh.toFixed(3);
+            if(document.getElementById("val-freq")) document.getElementById("val-freq").innerText = frequency.toFixed(1);
+            if(document.getElementById("val-pf")) document.getElementById("val-pf").innerText = pf.toFixed(2);
+            
+            if(document.getElementById("last-update")) {
+                document.getElementById("last-update").innerText = new Date().toLocaleTimeString();
+            }
+        } else {
+             console.log("⚠️ Path exists, but no data found at:", `${deviceId}/live`);
         }
-
-        // 5. Update Simple Cards
-        if(document.getElementById("val-voltage")) document.getElementById("val-voltage").innerText = voltage.toFixed(1);
-        if(document.getElementById("val-current")) document.getElementById("val-current").innerText = current.toFixed(3);
-        if(document.getElementById("val-power")) document.getElementById("val-power").innerText = powerW.toFixed(1);
-        if(document.getElementById("val-energy")) document.getElementById("val-energy").innerText = energyKWh.toFixed(3);
-        if(document.getElementById("val-freq")) document.getElementById("val-freq").innerText = frequency.toFixed(1);
-        if(document.getElementById("val-pf")) document.getElementById("val-pf").innerText = pf.toFixed(2);
-        
-        if(document.getElementById("last-update")) {
-            document.getElementById("last-update").innerText = new Date().toLocaleTimeString();
-        }
-    }
-});
+    });
+}
 
 // ------------------------------------------------------------------
 // 6. DASHBOARD & UTILS
@@ -631,33 +713,27 @@ function switchTariff(type) {
     });
 
 // ------------------------------------------------------------------
-// 7. HOURLY ENERGY USAGE CHART (Firebase Realtime DB)
+// 7. HOURLY ENERGY USAGE CHART (Dynamic Device ID)
 // ------------------------------------------------------------------
 
+let globalEnergyChart; // Store chart instance globally so we can update it
+
+// A. Initialize the Chart (Visuals only)
 document.addEventListener("DOMContentLoaded", () => {
     const canvasElement = document.getElementById('energyChart');
+    if (!canvasElement) return;
 
-    if (!canvasElement) {
-        console.warn("Skipping Energy Chart: Canvas not found.");
-        return;
-    }
-
-    // --- FIX 1: AUTO-DESTROY GHOST CHARTS ---
-    // This removes any previous chart instance preventing the glitch
+    // Destroy ghost charts
     const existingChart = Chart.getChart(canvasElement);
-    if (existingChart) {
-        existingChart.destroy();
-    }
+    if (existingChart) existingChart.destroy();
 
     const ctx_live = canvasElement.getContext('2d');
     
-    // Create Gradient
     const gradient = ctx_live.createLinearGradient(0, 0, 0, 400);
     gradient.addColorStop(0, 'rgba(15, 0, 145, 0.66)'); 
     gradient.addColorStop(1, 'rgba(14, 0, 145, 0.0)'); 
 
-    // Initialize Chart
-    const energyChart = new Chart(ctx_live, {
+    globalEnergyChart = new Chart(ctx_live, {
         type: 'line',
         data: {
             labels: [], 
@@ -678,31 +754,30 @@ document.addEventListener("DOMContentLoaded", () => {
             responsive: true,
             maintainAspectRatio: false,
             scales: {
-                y: { 
-                    beginAtZero: false, // Let chart scale to your data (e.g. 65-67)
-                    grid: { color: '#f3f4f6' } 
-                },
+                y: { beginAtZero: false, grid: { color: '#f3f4f6' } },
                 x: { grid: { display: false } }
             },
             plugins: {
                 legend: { display: false },
-                tooltip: {
-                    callbacks: { label: (c) => c.raw + ' kwh' }
-                }
+                tooltip: { callbacks: { label: (c) => c.raw + ' kwh' } }
             }
         }
     });
+});
 
-    // Helper: Format Time
-    function formatKeyToTime(key) {
-        const hour = parseInt(key.substring(8, 10)); 
-        const ampm = hour >= 12 ? 'PM' : 'AM';
-        const displayHour = hour % 12 || 12; 
-        return `${displayHour}:00 ${ampm}`;
-    }
+// ------------------------------------------------------------------
+// 7. HOURLY ENERGY USAGE CHART (FIXED PATH)
+// ------------------------------------------------------------------
+// ... (Your 'A. Initialize the Chart' code stays the same) ...
 
-    // Database Listener
-    const hourlyRef = ref(database, 'energy_monitor/energy_hourly');
+// B. Function to Listen to Data (Called by Auth)
+function startHourlyChartListener(deviceId) {
+    if (!globalEnergyChart) return; 
+
+    // OLD BROKEN PATH: ref(database, `${deviceId}/energy_monitor/energy_hourly`);
+
+    // ✅ NEW CORRECT PATH
+    const hourlyRef = ref(database, `${deviceId}/energy_hourly`);
 
     onValue(hourlyRef, (snapshot) => {
         const data = snapshot.val();
@@ -715,22 +790,26 @@ document.addEventListener("DOMContentLoaded", () => {
         const sortedKeys = Object.keys(data).sort();
         const recentKeys = sortedKeys.slice(-12); 
 
+        function formatKeyToTime(key) {
+            const hour = parseInt(key.substring(8, 10)); 
+            const ampm = hour >= 12 ? 'PM' : 'AM';
+            const displayHour = hour % 12 || 12; 
+            return `${displayHour}:00 ${ampm}`;
+        }
+
         recentKeys.forEach(key => {
             labels.push(formatKeyToTime(key));
-            values.push(data[key].kwh); // Make sure this matches your DB property
+            values.push(data[key].kwh); 
         });
 
-        // --- FIX 2: DEBUG LOG ---
-        // Check console to see if "Values" has numbers like [65, 66, 67]
-        console.log("📈 DRAWING CHART WITH VALUES:", values);
+        console.log("📈 Updating Chart with", values.length, "points");
 
-        // Update Chart
-        energyChart.data.labels = labels;
-        energyChart.data.datasets[0].data = values;
-        energyChart.update();
+        // Update Global Chart
+        globalEnergyChart.data.labels = labels;
+        globalEnergyChart.data.datasets[0].data = values;
+        globalEnergyChart.update();
 
-        // Update Timestamp
         const updateText = document.getElementById('last-update');
         if(updateText) updateText.innerText = "Last update: " + new Date().toLocaleTimeString();
     });
-});
+}
