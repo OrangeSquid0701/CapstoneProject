@@ -91,7 +91,6 @@
                     <button id="openProfileBtn" class="hover:text-yellow-300 transition-colors focus:outline-none">
                         Profile
                     </button>
-                    <a href="#readings" class="hover:text-yellow-300 transition-colors">Readings</a>
                     <a href="#tariff" class="hover:text-yellow-300 transition-colors">Tariff</a>
                     <a href="#calculator" class="hover:text-yellow-300 transition-colors">Calculator</a>
                     <a style="cursor: pointer;" class="logoutBtn hover:text-yellow-300 transition-colors">Logout</a>
@@ -247,20 +246,20 @@
                             <div class="w-28 h-28 bg-white rounded-full flex flex-col items-center justify-center absolute">
                                 
                                 <div class="flex items-baseline gap-0.5">
-                                    <span class="text-2xl font-bold text-gray-800" id="val-energy">1,220</span>
+                                    <span class="text-2xl font-bold text-gray-800" id="val-monthly-total">--</span>
                                     <span class="text-xs font-semibold text-gray-400">kWh</span>
                                 </div>
 
                                 <div class="mt-0.5 px-2 py-0.5 rounded-full bg-gray-50 flex items-center gap-1" id="trend-pill">
-                                    <span class="text-xs font-bold text-gray-400" id="trend-arrow">▲</span>
-                                    <span class="text-xs font-bold text-gray-500" id="trend-percent">15%</span>
+                                    <span class="text-xs font-bold text-gray-400" id="trend-arrow">-</span>
+                                    <span class="text-xs font-bold text-gray-500" id="trend-percent">--%</span>
                                 </div>
 
                             </div>
                         </div>
 
-                        <p class="text-[10px] text-gray-400 mt-4 text-center">
-                            Last Month: <span id="trend-benchmark">1,403</span> kWh
+                        <p class="text-[12px] text-gray-600 mt-6 text-center">
+                            Previous Month: <span id="trend-benchmark">--</span> kWh
                         </p>
 
                     </div>
@@ -286,7 +285,10 @@
                 
                 <!--Weekly Energy Usage-->
                 <div class="bg-white p-6 rounded-xl shadow-md">
-                    <h3 class="text-lg font-semibold text-gray-800 mb-4">Weekly Energy Usage</h3>
+                    <div class="flex justify-between items-center mb-4">
+                        <h3 class="text-lg font-semibold text-gray-800">Weekly Energy Usage</h3>
+                        <span class="text-sm text-gray-500 font-small">AI model used: RandomForestRegressor</span>
+                    </div>
 
                     <div class="relative h-64 w-full">
                         <canvas id="dailyUsageChart"></canvas>
@@ -316,15 +318,16 @@
                 <div class="bg-white rounded-xl shadow-md p-6">
                     <h4 class="text-lg font-semibold text-gray-800 mb-4">Monthly Cost Breakdown</h4>
                     <div class="space-y-3">
+                        
                         <div class="flex items-center justify-between">
                             <div class="flex items-center space-x-2">
                                 <div class="w-4 h-4 rounded" style="background-color: #0E0091;"></div>
                                 <span class="text-sm">Energy Charges</span>
                             </div>
-                            <span class="text-sm font-semibold">RM 218.45</span>
+                            <span class="text-sm font-semibold" id="cost-energy">--</span>
                         </div>
                         <div class="w-full bg-gray-200 rounded-full h-2">
-                            <div class="h-2 rounded-full" style="width: 89%; background-color: #0E0091;"></div>
+                            <div id="bar-energy" class="h-2 rounded-full" style="width: 0%; background-color: #0E0091;"></div>
                         </div>
                         
                         <div class="flex items-center justify-between">
@@ -332,10 +335,10 @@
                                 <div class="w-4 h-4 bg-blue-400 rounded"></div>
                                 <span class="text-sm">Service Charge</span>
                             </div>
-                            <span class="text-sm font-semibold">RM 3.00</span>
+                            <span class="text-sm font-semibold" id="cost-service">--</span>
                         </div>
                         <div class="w-full bg-gray-200 rounded-full h-2">
-                            <div class="bg-blue-400 h-2 rounded-full" style="width: 1.2%;"></div>
+                            <div id="bar-service" class="bg-blue-400 h-2 rounded-full" style="width: 0%;"></div>
                         </div>
                         
                         <div class="flex items-center justify-between">
@@ -343,16 +346,16 @@
                                 <div class="w-4 h-4 bg-green-400 rounded"></div>
                                 <span class="text-sm">SST (6%)</span>
                             </div>
-                            <span class="text-sm font-semibold">RM 13.29</span>
+                            <span class="text-sm font-semibold" id="cost-sst">--</span>
                         </div>
                         <div class="w-full bg-gray-200 rounded-full h-2">
-                            <div class="bg-green-400 h-2 rounded-full" style="width: 5.4%;"></div>
+                            <div id="bar-sst" class="bg-green-400 h-2 rounded-full" style="width: 0%;"></div>
                         </div>
                         
                         <div class="border-t pt-2 mt-3">
                             <div class="flex justify-between font-semibold">
                                 <span>Total Bill:</span>
-                                <span class="primary-text">RM 234.74</span>
+                                <span class="primary-text" id="cost-total">--</span>
                             </div>
                         </div>
                     </div>
@@ -434,45 +437,6 @@
                             </div>
                         </div>
                     </div>
-                </div>
-            </div>
-        </section>
-
-        <!-- Recent Readings Table -->
-        <section class="mb-12">
-            <h3 class="text-xl font-semibold text-gray-800 mb-6">Recent Readings</h3>
-            <div class="bg-white rounded-xl shadow-md overflow-hidden">
-                <div class="overflow-x-auto">
-                    <table class="w-full">
-                        <thead class="bg-gray-50">
-                            <tr>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Reading (kWh)</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Real Power (kW)</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Reactive Power (kVAR)</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Power Factor</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Usage</th>
-                            </tr>
-                        </thead>
-                        <tbody id="readingsTable" class="bg-white divide-y divide-gray-200">
-                            <tr>
-                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">2026-01-07</td>
-                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">12,450.5</td>
-                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">8.5</td>
-                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">6.2</td>
-                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">0.85</td>
-                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">-</td>
-                            </tr>
-                            <tr>
-                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">2026-01-08</td>
-                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">11,203.2</td>
-                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">7.8</td>
-                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">5.9</td>
-                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">0.80</td>
-                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">1,247.3 kWh</td>
-                            </tr>
-                        </tbody>
-                    </table>
                 </div>
             </div>
         </section>

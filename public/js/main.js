@@ -6,6 +6,13 @@ import { getDatabase, ref, onValue, set, get } from "https://www.gstatic.com/fir
 import { getAuth, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-auth.js";
 
 import { TARIFF_CONFIG } from './tariff_config.js';
+
+// ------------------------------------------------------------------
+// GLOBAL STATE (Add this section)
+// ------------------------------------------------------------------
+let currentTariffType = 'standard'; // Default selection
+let lastKnownEnergyKWh = 0;         // Stores the latest energy reading
+
 // ------------------------------------------------------------------
 // 2. CONFIGURATION
 // ------------------------------------------------------------------
@@ -85,6 +92,8 @@ onAuthStateChanged(auth, (user) => {
                 // Start the charts and data listeners
                 startRealtimeDataListener(deviceId);
                 startHourlyChartListener(deviceId);
+                startWeeklyChartListener(deviceId);
+                startMonthlyChartListener(deviceId);
             } else {
                 console.warn("⚠️ Access Denied: No device linked to this account path.");
                 // Optional: Alert the user if the DB path is empty
@@ -197,59 +206,73 @@ function calculateTNBEstimator(usage, tariffType = 'standard') {
 // calculateTNBEstimator(100) Using Standard Tariff
 // calculateTNBEstimator(100, 'alternative') Using ToU Tariff
 
-
 // ------------------------------------------------------------------
-// 5. REALTIME DATA LOGIC (FIXED PATH)
+// 5. REALTIME DATA LISTENER (Corrected & Restored)
 // ------------------------------------------------------------------
 function startRealtimeDataListener(deviceId) {
-    // OLD BROKEN PATH: ref(database, `${deviceId}/energy_monitor/live`);
-    
-    // ✅ NEW CORRECT PATH: Since deviceId IS "energy_monitor", we just add "/live"
+    // Reference to the live data node
     const energyRef = ref(database, `${deviceId}/live`);
 
     onValue(energyRef, (snapshot) => {
         const data = snapshot.val();
         
         if (data) {
-            console.log("⚡ Data Received:", data); // Debug log to verify data arrives
-
-            // 1. Extract Raw Values
-            const voltage = parseFloat(data.voltage_V) || 0;
-            const current = parseFloat(data.current_A) || 0;
-            const powerW = parseFloat(data.power_W) || 0;
-            const energyKWh = parseFloat(data.energy_kWh) || 0;
+            // 1. Extract Raw Values (with safety defaults)
+            const voltage   = parseFloat(data.voltage_V) || 0;
+            const current   = parseFloat(data.current_A) || 0;
+            const powerW    = parseFloat(data.power_W) || 0;
+            const energyKWh = parseFloat(data.energy_kWh) || 0; 
             const frequency = parseFloat(data.frequency_Hz) || 0;
-            const pf = parseFloat(data.power_factor) || 0;
+            const pf        = parseFloat(data.power_factor) || 0;
+
+            // 🔴 GLOBAL STATE UPDATE (For the Tariff Button)
+            lastKnownEnergyKWh = energyKWh; 
 
             // 2. Electrical Calculations
             const realPowerKW = powerW / 1000;
             const apparentPowerKVA = ((voltage * current) / 1000);
             
-            // Reactive Power
+            // Reactive Power Calculation
             const term = Math.pow(apparentPowerKVA, 2) - Math.pow(realPowerKW, 2);
             const reactivePowerKVAR = Math.sqrt(Math.max(0, term));
 
-            // 3. Bill Calculation
-            const liveBill = calculateTNBEstimator(energyKWh);
+            // 3. Bill Calculation (Dynamic based on selected button)
+            // Uses the global 'currentTariffType' variable we added earlier
+            const liveBill = calculateTNBEstimator(energyKWh, currentTariffType);
 
-            // 4. Update Dashboard
+            // 4. Update "Power Analysis" & "Dashboard" (Bottom Section)
             updateDashboard(realPowerKW.toFixed(3), reactivePowerKVAR.toFixed(3), pf.toFixed(2), apparentPowerKVA);
             
+            // Update Bill Display
             if(document.getElementById("currentBill")) {
                 document.getElementById("currentBill").innerText = `RM ${liveBill.toFixed(2)}`;
             }
 
-            // 5. Update Simple Cards
+            // ---------------------------------------------------------
+            // 5. UPDATE SIMPLE CARDS (The Missing Part Restored)
+            // ---------------------------------------------------------
+            // These lines update the top row cards. If they are missing, those values show 0.
+            
             if(document.getElementById("val-voltage")) document.getElementById("val-voltage").innerText = voltage.toFixed(1);
             if(document.getElementById("val-current")) document.getElementById("val-current").innerText = current.toFixed(3);
+            
+            // Real Power (W) Card
             if(document.getElementById("val-power")) document.getElementById("val-power").innerText = powerW.toFixed(1);
+            
+            // Energy Used (kWh) Card
             if(document.getElementById("val-energy")) document.getElementById("val-energy").innerText = energyKWh.toFixed(3);
+            
+            // Frequency Card
             if(document.getElementById("val-freq")) document.getElementById("val-freq").innerText = frequency.toFixed(1);
+            
+            // Power Factor Card
             if(document.getElementById("val-pf")) document.getElementById("val-pf").innerText = pf.toFixed(2);
             
+            // Last Update Time
             if(document.getElementById("last-update")) {
                 document.getElementById("last-update").innerText = new Date().toLocaleTimeString();
             }
+
         } else {
              console.log("⚠️ Path exists, but no data found at:", `${deviceId}/live`);
         }
@@ -303,30 +326,200 @@ function updateDashboard(realPower, reactivePower, powerFactor, apparentPower) {
         const degrees = pfPercent * 3.6;
         circularProgress.style.background = `conic-gradient(#0E0091 0deg ${degrees}deg, #e5e7eb ${degrees}deg 360deg)`;
     }
-
-    if(typeof updateDailyChart === 'function') updateDailyChart();
 }
 
-// Chart Utils (Mock Data)
-function updateDailyChart() {
-    const dailyValues = [24.5, 31.2, 18.7, 35.4, 37.8, 29.1, 42.3]; 
-    for (let i = 0; i < 7; i++) {
-        const bar = document.getElementById(`day${i + 1}`);
-        const valueSpan = document.getElementById(`day${i + 1}-value`);
-        if (bar && valueSpan) {
-            const val = dailyValues[i];
-            bar.style.height = ((val / 45) * 100) + '%';
-            valueSpan.textContent = val.toFixed(1);
+// ------------------------------------------------------------------
+// WEEKLY ENERGY USAGE CHART (Dynamic & Authenticated)
+// ------------------------------------------------------------------
+function startWeeklyChartListener(deviceId) {
+    // Reference to the weekly data node
+    const dbRef = ref(database, `${deviceId}/energy_weekly`);
+
+    onValue(dbRef, (snapshot) => {
+        const data = snapshot.val();
+        
+        if (data) {
+            // 1. Define your database keys for the days
+            // (Make sure these match your DB spelling: Tues, Weds, etc.)
+            const dayKeys = ['Mon', 'Tues', 'Weds', 'Thurs', 'Fri', 'Sat', 'Sun'];
+            
+            // 2. Arrays to hold our sorted data
+            const actualValues = [];
+            const predictedValues = [];
+
+            // 3. Loop through days and extract both values
+            dayKeys.forEach(day => {
+                // Get Actual (e.g., data['Mon'])
+                actualValues.push(data[day] ? parseFloat(data[day]) : 0);
+
+                // Get Predicted (e.g., data['Mon_predicted'])
+                const predKey = `${day}_predicted`;
+                predictedValues.push(data[predKey] ? parseFloat(data[predKey]) : 0);
+            });
+
+            console.log("📊 Loaded Weekly Data:", actualValues, predictedValues);
+
+            // 4. Update the Chart.js Instance
+            if (window.myUsageChart) {
+                // Dataset [0] is Actual Consumption (Blue/Purple area)
+                window.myUsageChart.data.datasets[0].data = actualValues;
+                
+                // Dataset [1] is AI Prediction (Orange dashed line)
+                window.myUsageChart.data.datasets[1].data = predictedValues;
+                
+                // Update the "Total Actual" text display
+                const total = actualValues.reduce((a, b) => a + b, 0);
+                const totalEl = document.getElementById('total-display');
+                if(totalEl) totalEl.innerText = total.toFixed(1) + ' kWh';
+
+                // Refresh the visual chart
+                window.myUsageChart.update();
+            }
         }
-    }
+    });
 }
 
-// Bill Calculator (Updated to use Shared Logic)
 // ------------------------------------------------------------------
-// MANUAL BILL CALCULATOR (With Breakdown List)
+// MONTHLY CHART LISTENER (Chart + Trend + Cost Breakdown)
 // ------------------------------------------------------------------
+function startMonthlyChartListener(deviceId) {
+    const dbRef = ref(database, `${deviceId}/monthly_usage`);
+
+    onValue(dbRef, (snapshot) => {
+        const data = snapshot.val();
+        
+        if (data) {
+            // 1. Sort Data Chronologically
+            const monthMap = { 'Jan': 1, 'Feb': 2, 'Mar': 3, 'Apr': 4, 'May': 5, 'Jun': 6, 'Jul': 7, 'Aug': 8, 'Sep': 9, 'Oct': 10, 'Nov': 11, 'Dec': 12 };
+            
+            const sortedData = Object.keys(data).map(key => {
+                return { label: key, value: parseFloat(data[key]) };
+            }).sort((a, b) => monthMap[a.label] - monthMap[b.label]);
+
+            // ------------------------------------------------------
+            // PART A: UPDATE BAR CHART
+            // ------------------------------------------------------
+            if (window.myMonthlyChart) {
+                const labels = sortedData.map(item => item.label);
+                const values = sortedData.map(item => item.value);
+
+                window.myMonthlyChart.data.labels = labels;
+                window.myMonthlyChart.data.datasets[0].data = values;
+                
+                // Highlight the last bar with Dark Indigo
+                const colors = values.map((_, index) => index === values.length - 1 ? '#1500d1ff' : '#005cd4ff');
+                window.myMonthlyChart.data.datasets[0].backgroundColor = colors;
+                window.myMonthlyChart.update();
+                
+                // Update "Average" Text on Chart Card
+                const totalArr = values.reduce((a, b) => a + b, 0);
+                const avg = values.length ? Math.round(totalArr / values.length) : 0;
+                if(document.getElementById('averageUsage')) document.getElementById('averageUsage').innerText = `${avg.toLocaleString()} kWh/month`;
+            }
+
+            // ------------------------------------------------------
+            // PART B: UPDATE TREND WIDGET
+            // ------------------------------------------------------
+            // Get Current (Last Month) and Previous (2nd to Last)
+            const len = sortedData.length;
+            const currentItem = len > 0 ? sortedData[len - 1] : { value: 0 };
+            const prevItem    = len > 1 ? sortedData[len - 2] : { value: 0 };
+            const currentVal  = currentItem.value; // e.g., 1356
+            const prevVal     = prevItem.value;    // e.g., 1247
+
+            // Update Main Text (Using the fixed ID)
+            const valMonthlyEl = document.getElementById('val-monthly-total');
+            if (valMonthlyEl) valMonthlyEl.innerText = currentVal.toLocaleString();
+
+            const benchmarkEl = document.getElementById('trend-benchmark');
+            if (benchmarkEl) benchmarkEl.innerText = prevVal.toLocaleString();
+
+            // Calculate Percentage
+            let percentChange = 0;
+            if (prevVal > 0) percentChange = ((currentVal - prevVal) / prevVal) * 100;
+            else if (currentVal > 0) percentChange = 100;
+
+            // Update Pill & Arrow
+            const arrowEl = document.getElementById('trend-arrow');
+            const percentEl = document.getElementById('trend-percent');
+            const pillEl = document.getElementById('trend-pill');
+            const gaugeEl = document.getElementById('conciseTrendGauge');
+
+            if (arrowEl && percentEl && pillEl) {
+                percentEl.innerText = Math.abs(percentChange).toFixed(1) + '%';
+                
+                if (percentChange > 0) {
+                    // INCREASE (Red)
+                    arrowEl.innerText = '▲'; 
+                    pillEl.className = "mt-0.5 px-2 py-0.5 rounded-full bg-red-100 flex items-center gap-1";
+                    arrowEl.className = "text-xs font-bold text-red-500"; 
+                    percentEl.className = "text-xs font-bold text-red-600";
+                } else if (percentChange < 0) {
+                    // DECREASE (Green)
+                    arrowEl.innerText = '▼'; 
+                    pillEl.className = "mt-0.5 px-2 py-0.5 rounded-full bg-green-100 flex items-center gap-1";
+                    arrowEl.className = "text-xs font-bold text-green-500"; 
+                    percentEl.className = "text-xs font-bold text-green-600";
+                } else {
+                    // NEUTRAL
+                    arrowEl.innerText = '-'; 
+                    pillEl.className = "mt-0.5 px-2 py-0.5 rounded-full bg-gray-100 flex items-center gap-1";
+                    arrowEl.className = "text-xs font-bold text-gray-400"; 
+                    percentEl.className = "text-xs font-bold text-gray-500";
+                }
+            }
+
+            // Update Circular Gauge (Dark Indigo)
+            if (gaugeEl) {
+                let degrees = (currentVal / 2000) * 360; 
+                if (degrees > 360) degrees = 360;
+                // Using #0E0091 to match Power Factor widget
+                gaugeEl.style.background = `conic-gradient(#0E0091 0deg ${degrees}deg, #f3f4f6 ${degrees}deg 360deg)`;
+            }
+
+            // ------------------------------------------------------
+            // PART C: MONTHLY COST BREAKDOWN
+            // ------------------------------------------------------
+            // Calculate Bill based on Current Month Usage
+            let energyRate = (currentVal <= 1500) ? 0.4443 : 0.5443; // Simplified Tier Logic
+            
+            const costEnergy   = currentVal * energyRate; 
+            const costService  = 10.00;                   
+            const costSubtotal = costEnergy + costService;
+            const costSST      = costSubtotal * 0.06;     
+            const costTotal    = costSubtotal + costSST;
+
+            // Update Text Elements
+            const elCostEnergy  = document.getElementById('cost-energy');
+            const elCostService = document.getElementById('cost-service');
+            const elCostSST     = document.getElementById('cost-sst');
+            const elCostTotal   = document.getElementById('cost-total');
+
+            if(elCostEnergy)  elCostEnergy.innerText  = `RM ${costEnergy.toFixed(2)}`;
+            if(elCostService) elCostService.innerText = `RM ${costService.toFixed(2)}`;
+            if(elCostSST)     elCostSST.innerText     = `RM ${costSST.toFixed(2)}`;
+            if(elCostTotal)   elCostTotal.innerText   = `RM ${costTotal.toFixed(2)}`;
+
+            // Update Progress Bars (Width based on % of Total Bill)
+            const elBarEnergy  = document.getElementById('bar-energy');
+            const elBarService = document.getElementById('bar-service');
+            const elBarSST     = document.getElementById('bar-sst');
+
+            if(costTotal > 0) {
+                const pctEnergy  = (costEnergy / costTotal) * 100;
+                const pctService = (costService / costTotal) * 100;
+                const pctSST     = (costSST / costTotal) * 100;
+
+                if(elBarEnergy)  elBarEnergy.style.width  = `${pctEnergy}%`;
+                if(elBarService) elBarService.style.width = `${pctService}%`;
+                if(elBarSST)     elBarSST.style.width     = `${pctSST}%`;
+            }
+        }
+    });
+}
+
 // ------------------------------------------------------------------
-// MANUAL BILL CALCULATOR (New Domestik Am Tariff)
+// MANUAL BILL CALCULATOR (Retail RM10 + Always 6% SST)
 // ------------------------------------------------------------------
 window.calculateBill = function() {
     const usageInput = document.getElementById('calculatorUsage');
@@ -345,63 +538,95 @@ window.calculateBill = function() {
     let totalCost = 0;
     let breakdown = []; 
 
-    // --- 1. Determine Rates based on Usage Tier ---
-    let energyRate, capacityRate, networkRate;
+    // --- CONSTANTS ---
+    const RATE_CAPACITY = 0.0455; // 4.55 sen
+    const RATE_NETWORK  = 0.1285; // 12.85 sen
     
-    if (usage <= 1500) {
-        energyRate = 0.2703;   // 27.03 sen
-        capacityRate = 0.0455; // 4.55 sen
-        networkRate = 0.1285;  // 12.85 sen
-        breakdown.push(`Tier: Low Usage (≤ 1,500 kWh)`);
-    } else {
-        energyRate = 0.3703;   // 37.03 sen
-        capacityRate = 0.0455; // 4.55 sen
-        networkRate = 0.1285;  // 12.85 sen
-        breakdown.push(`Tier: High Usage (> 1,500 kWh)`);
-    }
-
-    // --- 2. Calculate Components ---
-    
-    // A. Fixed Retail Charge
+    // 1. Retail Charge (Caj Peruncitan)
+    // Rule: FIXED at RM 10.00
     const retailCharge = 10.00;
     totalCost += retailCharge;
-    breakdown.push(`Caj Peruncitan (Fixed): RM ${retailCharge.toFixed(2)}`);
+    
+    breakdown.push(`Caj Peruncitan: RM ${retailCharge.toFixed(2)}`);
 
-    // B. Energy Charge (Caj Tenaga)
-    const costEnergy = usage * energyRate;
+    // 2. Energy Charge Calculation
+    let costEnergy = 0;
+    
+    if (currentTariffType === 'alternative') {
+        // --- TYPE B: ToU TARIFF ---
+        breakdown.push(`<span class="text-blue-600 font-bold mt-2 block">Tariff: Time of Use (ToU)</span>`);
+        breakdown.push(`<span class="text-xs text-gray-500 italic mb-2 block">Est. Split: 70% Peak / 30% Off-Peak</span>`);
+        
+        const peakUsage = usage * 0.70;
+        const offPeakUsage = usage * 0.30;
+
+        const calcToU = (units, rLow, rHigh) => {
+            if (usage <= 1500) return units * rLow;
+            const ratio = units / usage;
+            return ((1500 * ratio) * rLow) + ((usage - 1500) * ratio * rHigh);
+        };
+
+        const valPeak = calcToU(peakUsage, 0.2852, 0.3852);
+        const valOff  = calcToU(offPeakUsage, 0.2443, 0.3443);
+        costEnergy = valPeak + valOff;
+
+        breakdown.push(`Energy (Peak): RM ${valPeak.toFixed(2)}`);
+        breakdown.push(`Energy (Off-Peak): RM ${valOff.toFixed(2)}`);
+
+    } else {
+        // --- TYPE A: STANDARD TARIFF ---
+        breakdown.push(`<span class="text-blue-600 font-bold mt-2 block">Tariff: Standard (Domestik Am)</span>`);
+        
+        const RATE_E_LOW = 0.2703;  // Tier 1
+        const RATE_E_HIGH = 0.3703; // Tier 2
+
+        if (usage <= 1500) {
+            costEnergy = usage * RATE_E_LOW;
+            breakdown.push(`Energy Charge (Tier 1): RM ${costEnergy.toFixed(2)}`);
+        } else {
+            const c1 = 1500 * RATE_E_LOW;
+            const c2 = (usage - 1500) * RATE_E_HIGH;
+            costEnergy = c1 + c2;
+            
+            breakdown.push(`Energy Tier 1 (First 1,500): RM ${c1.toFixed(2)}`);
+            breakdown.push(`Energy Tier 2 (Next ${(usage - 1500).toFixed(0)}): RM ${c2.toFixed(2)}`);
+        }
+    }
+    
     totalCost += costEnergy;
-    breakdown.push(`Caj Tenaga (${(energyRate*100).toFixed(2)} sen/kWh): RM ${costEnergy.toFixed(2)}`);
 
-    // C. Capacity Charge (Caj Kapasiti)
-    const costCapacity = usage * capacityRate;
+    // 3. Capacity & Network Charges
+    const costCapacity = usage * RATE_CAPACITY;
+    const costNetwork = usage * RATE_NETWORK;
+    
     totalCost += costCapacity;
-    breakdown.push(`Caj Kapasiti (${(capacityRate*100).toFixed(2)} sen/kWh): RM ${costCapacity.toFixed(2)}`);
-
-    // D. Network Charge (Caj Rangkaian)
-    const costNetwork = usage * networkRate;
     totalCost += costNetwork;
-    breakdown.push(`Caj Rangkaian (${(networkRate*100).toFixed(2)} sen/kWh): RM ${costNetwork.toFixed(2)}`);
 
-    // --- 3. SST Calculation (6%) ---
+    breakdown.push(`Caj Kapasiti (4.55 sen): RM ${costCapacity.toFixed(2)}`);
+    breakdown.push(`Caj Rangkaian (12.85 sen): RM ${costNetwork.toFixed(2)}`);
+
+    // 4. SST Calculation (Always 6% on Total)
+    // Rule: Always applied (No >600kWh check)
     const sst = totalCost * 0.06;
     totalCost += sst;
+    
     breakdown.push(`SST (6%): RM ${sst.toFixed(2)}`);
 
-    // ------------------------------------------------------
-    // 4. DISPLAY RESULTS
-    // ------------------------------------------------------
-    
+    // 5. Display Results
     if(document.getElementById('billBreakdown')) {
         document.getElementById('billBreakdown').innerHTML = breakdown.map(item => {
-            const parts = item.split(':');
-            // Check if it's a header (no colon) or a value row
-            if(parts.length < 2) {
-                 return `<div class="font-bold text-blue-600 border-b border-blue-100 py-1 text-sm mt-2">${item}</div>`;
+            if(item.includes('<span') || item.includes('Caj Peruncitan')) {
+                 if(item.includes('Caj Peruncitan')) {
+                     const parts = item.split(':');
+                     return `<div class="flex justify-between border-b border-gray-100 py-1 text-sm"><span class="text-gray-600">${parts[0]}:</span><span class="font-medium text-gray-800">${parts[1]}</span></div>`;
+                 }
+                 return `<div class="border-b border-blue-100 py-1 text-sm">${item}</div>`;
             }
+            const parts = item.split(':');
             return `
             <div class="flex justify-between border-b border-gray-100 py-1 text-sm">
                 <span class="text-gray-600">${parts[0]}:</span>
-                <span class="font-medium text-gray-800">${parts[1]}</span>
+                <span class="font-medium text-gray-800">${parts[1] || ''}</span>
             </div>`;
         }).join('');
     }
@@ -431,9 +656,8 @@ function showNotification(message, type) {
 // 1. The Data (This matches your Python data structure)
 const chartData = {
     labels: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
-    actual: [24.5, 31.2, 18.7, 35.4, 37.8, 40.9, 42.3],
-    // Mock AI Prediction (Simulated values close to actuals)
-    predicted: [26.2, 30.5, 21.0, 33.8, 39.2, 43.5, 40.8]
+    actual: [0, 0, 0, 0, 0, 0, 0],    // ✅ Starts empty/flat
+    predicted: [0, 0, 0, 0, 0, 0, 0]  // ✅ Starts empty/flat
 };
 
 // 2. Calculate Total for the Text Display
@@ -564,25 +788,26 @@ document.addEventListener('DOMContentLoaded', function() {
     const backgroundColors = chartData.data.map((_, index) => 
         index === chartData.data.length - 1 ? '#1500d1ff' : '#005cd4ff'
     );
+});
 
-    // 4. Render the Chart
+    // ------------------------------------------------------------------
+// Monthly Trend Chart (INITIALIZATION)
+// ------------------------------------------------------------------
+let myMonthlyChart; // Global variable
+
+document.addEventListener('DOMContentLoaded', function() {
     const ctx = document.getElementById('monthlyTrendChart').getContext('2d');
-    new Chart(ctx, {
+    
+    // Create the chart with EMPTY data initially
+    window.myMonthlyChart = new Chart(ctx, {
         type: 'bar',
         data: {
-            labels: chartData.labels,
+            labels: [], // Empty to start
             datasets: [{
                 label: 'Energy Usage',
-                data: chartData.data,
-                backgroundColor: backgroundColors,
-                // Keep the sharp bottom corners
-                borderRadius: {
-                    topLeft: 6,
-                    topRight: 6,
-                    bottomLeft: 0,
-                    bottomRight: 0
-                },
-                borderSkipped: false,
+                data: [], // Empty to start
+                backgroundColor: '#005cd4ff', // Default color
+                borderRadius: { topLeft: 6, topRight: 6, bottomLeft: 0, bottomRight: 0 },
                 barPercentage: 0.6,
                 categoryPercentage: 0.8
             }]
@@ -590,28 +815,16 @@ document.addEventListener('DOMContentLoaded', function() {
         options: {
             responsive: true,
             maintainAspectRatio: false,
-            layout: {
-                padding: {
-                    top: 25 // Adds space at the top so numbers aren't cut off
-                }
-            },
+            layout: { padding: { top: 25 } },
             plugins: {
                 legend: { display: false },
-                tooltip: { enabled: true },
-                
-                // --- UPDATED LABELS CONFIGURATION ---
                 datalabels: {
-                    color: '#4b5563', // Dark gray text (Tailwind gray-600)
-                    anchor: 'end',    // Anchor to the top of the bar
-                    align: 'end',     // Push it UPWARDS (outside the bar)
-                    offset: 4,        // Add a tiny bit of spacing from the bar
-                    font: {
-                        weight: 'bold',
-                        size: 11
-                    },
-                    formatter: function(value) {
-                        return value.toLocaleString();
-                    }
+                    color: '#4b5563',
+                    anchor: 'end',
+                    align: 'end',
+                    offset: 4,
+                    font: { weight: 'bold', size: 11 },
+                    formatter: (value) => value.toLocaleString()
                 }
             },
             scales: {
@@ -630,51 +843,63 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 
 function switchTariff(type) {
-        const config = TARIFF_CONFIG.types[type];
-        
-        // Error handling: if config doesn't exist, stop
-        if (!config) {
-            console.error(`Configuration for ${type} not found!`);
-            return;
-        }
+    const config = TARIFF_CONFIG.types[type];
+    if (!config) return;
 
-        // Update Text
-        const titleEl = document.getElementById('tariffTitle');
-        const dateEl = document.getElementById('tariffUpdateDate');
-        const fixedEl = document.getElementById('fixedChargeDisplay');
-        const sstEl = document.getElementById('sstDisplay');
+    // 1. UPDATE GLOBAL STATE
+    currentTariffType = type; 
 
-        if(titleEl) titleEl.textContent = config.title;
-        if(dateEl) dateEl.textContent = `[Last Updated ${config.lastUpdated}]`;
-        if(fixedEl) fixedEl.textContent = `RM ${config.fixedCharge.toFixed(2)}`;
-        if(sstEl) sstEl.textContent = (TARIFF_CONFIG.sstRate * 100);
+    // 2. Update Tariff Info Visuals (Text & Table)
+    const titleEl = document.getElementById('tariffTitle');
+    const dateEl = document.getElementById('tariffUpdateDate');
+    const fixedEl = document.getElementById('fixedChargeDisplay');
+    const sstEl = document.getElementById('sstDisplay');
 
-        // Update Table
-        const tbody = document.getElementById('tariffTableBody');
-        if (tbody) {
-            tbody.innerHTML = ''; // Clear table
-            
-            config.tiers.forEach(tier => {
-                const totalRate = (tier.energy + tier.capacity + tier.network).toFixed(2);
-                
-                const tr = `
-                    <tr class="${tier.rowBgClass}">
-                        <td class="px-4 py-3 text-sm text-gray-900 font-medium">
-                            ${tier.name}
-                            <div class="text-xs font-normal text-gray-500">${tier.subtext}</div>
-                        </td>
-                        <td class="px-4 py-3 text-sm text-gray-600">${tier.energy.toFixed(2)}</td>
-                        <td class="px-4 py-3 text-sm text-gray-600">${tier.capacity.toFixed(2)}</td>
-                        <td class="px-4 py-3 text-sm text-gray-600">${tier.network.toFixed(2)}</td>
-                        <td class="px-4 py-3 text-sm font-bold ${tier.totalColorClass}">${totalRate} sen</td>
-                    </tr>
-                `;
-                tbody.innerHTML += tr;
-            });
-        }
+    if(titleEl) titleEl.textContent = config.title;
+    if(dateEl) dateEl.textContent = `[Last Updated ${config.lastUpdated}]`;
+    if(fixedEl) fixedEl.textContent = `RM ${config.fixedCharge.toFixed(2)}`;
+    if(sstEl) sstEl.textContent = (TARIFF_CONFIG.sstRate * 100);
 
-        updateButtonStyles(type);
+    // Update Rates Table
+    const tbody = document.getElementById('tariffTableBody');
+    if (tbody) {
+        tbody.innerHTML = ''; 
+        config.tiers.forEach(tier => {
+            const totalRate = (tier.energy + tier.capacity + tier.network).toFixed(2);
+            const tr = `
+                <tr class="${tier.rowBgClass}">
+                    <td class="px-4 py-3 text-sm text-gray-900 font-medium">
+                        ${tier.name}
+                        <div class="text-xs font-normal text-gray-500">${tier.subtext}</div>
+                    </td>
+                    <td class="px-4 py-3 text-sm text-gray-600">${tier.energy.toFixed(2)}</td>
+                    <td class="px-4 py-3 text-sm text-gray-600">${tier.capacity.toFixed(2)}</td>
+                    <td class="px-4 py-3 text-sm text-gray-600">${tier.network.toFixed(2)}</td>
+                    <td class="px-4 py-3 text-sm font-bold ${tier.totalColorClass}">${totalRate} sen</td>
+                </tr>
+            `;
+            tbody.innerHTML += tr;
+        });
     }
+
+    updateButtonStyles(type);
+
+    // 3. TRIGGER IMMEDIATE RECALCULATION (For Live Dashboard)
+    // We keep this running so the dashboard at the top stays accurate
+    const newBill = calculateTNBEstimator(lastKnownEnergyKWh, currentTariffType);
+    if(document.getElementById("currentBill")) {
+        document.getElementById("currentBill").innerText = `RM ${newBill.toFixed(2)}`;
+    }
+
+    // ---------------------------------------------------------
+    // 4. RESET MANUAL CALCULATOR (The Change You Requested)
+    // ---------------------------------------------------------
+    // This hides the result table so the user must click "Calculate" again
+    const calcResult = document.getElementById('calculationResult');
+    if (calcResult) {
+        calcResult.classList.add('hidden'); // Adds the 'hidden' class to make it disappear
+    }
+}
 
     // 2. Button Styling Helper
     function updateButtonStyles(activeType) {
